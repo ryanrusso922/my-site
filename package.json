@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "deploy": "next build && CLOUDFLARE_ACCOUNT_ID=92efdf3265d65cb3f6610f591c2f1d39 wrangler pages deploy out --project-name my-site --commit-dirty=true",
     "start": "next start",
     "lint": "eslint"
   },

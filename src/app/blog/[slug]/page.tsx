@@ -39,6 +39,15 @@ async function getPost(slug: string) {
   };
 }
 
+export async function generateStaticParams() {
+  if (process.env.WORDPRESS_API_URL) {
+    const { getPosts } = await import("@/lib/wordpress");
+    const posts = await getPosts();
+    return posts.map((post) => ({ slug: post.slug }));
+  }
+  return Object.keys(mockPosts).map((slug) => ({ slug }));
+}
+
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
   const post = await getPost(slug);
