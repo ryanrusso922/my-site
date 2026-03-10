@@ -25,34 +25,58 @@ const mockPosts: Record<string, { title: string; content: string; date: string }
 };
 
 async function getPost(slug: string) {
-  if (process.env.WORDPRESS_API_URL) {
-    const { getPostBySlug } = await import("@/lib/wordpress");
-    return getPostBySlug(slug);
+  // Try WordPress GraphQL first
+  if (process.env.WORDPRESS_GRAPHQL_URL) {
+    try {
+      const { getPostBySlug } = await import("@/lib/wordpress");
+      const wpPost = await getPostBySlug(slug);
+      if (wpPost) return wpPost;
+    } catch {
+      // GraphQL unavailable — fall through to mock
+    }
   }
+
+  // Fallback to mock data
   const mock = mockPosts[slug];
   if (!mock) return null;
   return {
-    title: { rendered: mock.title },
-    content: { rendered: mock.content },
+    title: mock.title,
+    content: mock.content,
     date: mock.date,
     slug,
+    excerpt: "",
+    featuredImage: null,
   };
 }
 
 export async function generateStaticParams() {
-  if (process.env.WORDPRESS_API_URL) {
-    const { getPosts } = await import("@/lib/wordpress");
-    const posts = await getPosts();
-    return posts.map((post) => ({ slug: post.slug }));
+  const slugs: { slug: string }[] = [];
+
+  if (process.env.WORDPRESS_GRAPHQL_URL) {
+    try {
+      const { getPosts } = await import("@/lib/wordpress");
+      const posts = await getPosts();
+      slugs.push(...posts.map((post) => ({ slug: post.slug })));
+    } catch {
+      // GraphQL unavailable at build time — skip
+    }
   }
-  return Object.keys(mockPosts).map((slug) => ({ slug }));
+
+  // Always include mock posts as fallback so the route is never empty
+  for (const slug of Object.keys(mockPosts)) {
+    if (!slugs.some((s) => s.slug === slug)) {
+      slugs.push({ slug });
+    }
+  }
+
+  return slugs;
 }
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
   const post = await getPost(slug);
   if (!post) return { title: "Not Found" };
-  return { title: `${post.title.rendered} | MySite` };
+  return { title: `${post.title} | MySite` };
 }
 
 export default async function BlogPost({ params }: { params: Promise<{ slug: string }> }) {
@@ -79,11 +103,11 @@ export default async function BlogPost({ params }: { params: Promise<{ slug: str
             })}
           </time>
           <h1 className="mt-2 mb-8 text-4xl font-bold tracking-tight text-zinc-900 dark:text-white">
-            {post.title.rendered}
+            {post.title}
           </h1>
           <div
             className="prose prose-zinc max-w-none dark:prose-invert prose-headings:font-semibold prose-a:text-indigo-600 dark:prose-a:text-indigo-400"
-            dangerouslySetInnerHTML={{ __html: post.content.rendered }}
+            dangerouslySetInnerHTML={{ __html: post.content }}
           />
         </article>
       </main>

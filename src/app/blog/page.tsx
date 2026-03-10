@@ -2,35 +2,36 @@ import Link from "next/link";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 
-// Mock posts for development — replaced by WordPress API when WORDPRESS_API_URL is set
+// Mock posts for development — replaced by GraphQL when WORDPRESS_GRAPHQL_URL is set
 const mockPosts = [
   {
-    id: 1,
     slug: "getting-started-with-headless-wordpress",
-    title: { rendered: "Getting Started with Headless WordPress" },
-    excerpt: { rendered: "<p>Learn how to set up WordPress as a headless CMS and connect it to a modern frontend framework.</p>" },
+    title: "Getting Started with Headless WordPress",
+    excerpt: "<p>Learn how to set up WordPress as a headless CMS and connect it to a modern frontend framework.</p>",
     date: "2026-03-01T10:00:00",
   },
   {
-    id: 2,
     slug: "why-cloudflare-pages",
-    title: { rendered: "Why Cloudflare Pages for Your Next Project" },
-    excerpt: { rendered: "<p>Discover the benefits of deploying your site to Cloudflare's global edge network.</p>" },
+    title: "Why Cloudflare Pages for Your Next Project",
+    excerpt: "<p>Discover the benefits of deploying your site to Cloudflare's global edge network.</p>",
     date: "2026-02-25T10:00:00",
   },
   {
-    id: 3,
     slug: "nextjs-and-wordpress-best-practices",
-    title: { rendered: "Next.js + WordPress: Best Practices" },
-    excerpt: { rendered: "<p>Tips and patterns for building a production-ready headless WordPress site with Next.js.</p>" },
+    title: "Next.js + WordPress: Best Practices",
+    excerpt: "<p>Tips and patterns for building a production-ready headless WordPress site with Next.js.</p>",
     date: "2026-02-20T10:00:00",
   },
 ];
 
-async function getPosts() {
-  if (process.env.WORDPRESS_API_URL) {
-    const { getPosts } = await import("@/lib/wordpress");
-    return getPosts();
+async function fetchPosts() {
+  if (process.env.WORDPRESS_GRAPHQL_URL) {
+    try {
+      const { getPosts } = await import("@/lib/wordpress");
+      return await getPosts();
+    } catch {
+      // GraphQL unavailable — fall through to mock
+    }
   }
   return mockPosts;
 }
@@ -41,7 +42,7 @@ export const metadata = {
 };
 
 export default async function BlogPage() {
-  const posts = await getPosts();
+  const posts = await fetchPosts();
 
   return (
     <>
@@ -57,7 +58,7 @@ export default async function BlogPage() {
           <div className="space-y-8">
             {posts.map((post) => (
               <article
-                key={post.id}
+                key={post.slug}
                 className="rounded-2xl border border-zinc-200 p-8 transition-shadow hover:shadow-lg dark:border-zinc-800"
               >
                 <time className="text-sm text-zinc-500">
@@ -72,12 +73,12 @@ export default async function BlogPage() {
                     href={`/blog/${post.slug}`}
                     className="hover:text-indigo-500 dark:hover:text-indigo-400"
                   >
-                    {post.title.rendered}
+                    {post.title}
                   </Link>
                 </h2>
                 <div
                   className="mt-3 text-zinc-600 dark:text-zinc-400"
-                  dangerouslySetInnerHTML={{ __html: post.excerpt.rendered }}
+                  dangerouslySetInnerHTML={{ __html: post.excerpt }}
                 />
                 <Link
                   href={`/blog/${post.slug}`}

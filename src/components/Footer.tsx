@@ -12,6 +12,9 @@ export default function Footer() {
             <Link href="#features" className="text-sm text-zinc-500 hover:text-zinc-900 dark:hover:text-white">
               Features
             </Link>
+            <Link href="/projects" className="text-sm text-zinc-500 hover:text-zinc-900 dark:hover:text-white">
+              Projects
+            </Link>
             <Link href="#about" className="text-sm text-zinc-500 hover:text-zinc-900 dark:hover:text-white">
               About
             </Link>

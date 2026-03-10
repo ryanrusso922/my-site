@@ -1,66 +1,266 @@
-const WP_API_URL = process.env.WORDPRESS_API_URL || "https://your-wordpress-site.com/wp-json/wp/v2";
+const GRAPHQL_URL = process.env.WORDPRESS_GRAPHQL_URL || "https://ryanr324.sg-host.com/graphql";
+
+// ---------- Types ----------
 
 export interface WPPost {
-  id: number;
-  title: { rendered: string };
-  excerpt: { rendered: string };
-  content: { rendered: string };
   slug: string;
+  title: string;
   date: string;
-  featured_media: number;
-  _embedded?: {
-    "wp:featuredmedia"?: Array<{
-      source_url: string;
-      alt_text: string;
-    }>;
-  };
+  excerpt: string;
+  content: string;
+  featuredImage: {
+    node: {
+      sourceUrl: string;
+      altText: string;
+    };
+  } | null;
+  // ACF custom fields (added via WPGraphQL for ACF)
+  acfFields?: Record<string, unknown>;
+}
+
+export interface WPProject {
+  slug: string;
+  title: string;
+  date: string;
+  excerpt: string;
+  content: string;
+  featuredImage: {
+    node: {
+      sourceUrl: string;
+      altText: string;
+    };
+  } | null;
+  projectFields: {
+    clientName: string | null;
+    projectUrl: string | null;
+    technologiesUsed: string | null;
+    testimonialQuote: string | null;
+    testimonialAuthor: string | null;
+    projectDate: string | null;
+    projectStatus: string | null;
+    galleryImages: Array<{
+      sourceUrl: string;
+      altText: string;
+    }> | null;
+  } | null;
 }
 
 export interface WPPage {
-  id: number;
-  title: { rendered: string };
-  content: { rendered: string };
   slug: string;
-  acf?: Record<string, unknown>;
+  title: string;
+  content: string;
+  featuredImage: {
+    node: {
+      sourceUrl: string;
+      altText: string;
+    };
+  } | null;
 }
 
-async function fetchAPI<T>(endpoint: string, params?: Record<string, string>): Promise<T> {
-  const url = new URL(`${WP_API_URL}${endpoint}`);
-  if (params) {
-    Object.entries(params).forEach(([key, value]) => url.searchParams.set(key, value));
-  }
+// ---------- GraphQL Fetch ----------
 
-  const res = await fetch(url.toString(), {
+interface GraphQLResponse<T> {
+  data: T;
+  errors?: Array<{ message: string }>;
+}
+
+async function fetchGraphQL<T>(query: string, variables?: Record<string, unknown>): Promise<T> {
+  const res = await fetch(GRAPHQL_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ query, variables }),
     next: { revalidate: 60 },
   });
 
   if (!res.ok) {
-    throw new Error(`WordPress API error: ${res.status} ${res.statusText}`);
+    throw new Error(`GraphQL error: ${res.status} ${res.statusText}`);
   }
 
-  return res.json() as Promise<T>;
+  const json = (await res.json()) as GraphQLResponse<T>;
+
+  if (json.errors?.length) {
+    throw new Error(`GraphQL error: ${json.errors[0].message}`);
+  }
+
+  return json.data;
 }
 
-export async function getPosts(perPage = 10): Promise<WPPost[]> {
-  return fetchAPI<WPPost[]>("/posts", {
-    per_page: String(perPage),
-    _embed: "true",
-  });
+// ---------- Queries ----------
+
+const POST_FIELDS = `
+  slug
+  title
+  date
+  excerpt
+  content
+  featuredImage {
+    node {
+      sourceUrl
+      altText
+    }
+  }
+`;
+
+export async function getPosts(first = 10): Promise<WPPost[]> {
+  const data = await fetchGraphQL<{ posts: { nodes: WPPost[] } }>(
+    `query GetPosts($first: Int!) {
+      posts(first: $first, where: { orderby: { field: DATE, order: DESC } }) {
+        nodes {
+          ${POST_FIELDS}
+        }
+      }
+    }`,
+    { first }
+  );
+  return data.posts.nodes;
 }
 
 export async function getPostBySlug(slug: string): Promise<WPPost | null> {
-  const posts = await fetchAPI<WPPost[]>("/posts", {
-    slug,
-    _embed: "true",
-  });
-  return posts[0] || null;
+  const data = await fetchGraphQL<{ post: WPPost | null }>(
+    `query GetPost($slug: ID!) {
+      post(id: $slug, idType: SLUG) {
+        ${POST_FIELDS}
+      }
+    }`,
+    { slug }
+  );
+  return data.post;
+}
+
+// ---------- Project Queries ----------
+
+const PROJECT_FIELDS = `
+  slug
+  title
+  date
+  excerpt
+  content
+  featuredImage {
+    node {
+      sourceUrl
+      altText
+    }
+  }
+  projectFields {
+    clientName
+    projectUrl
+    technologiesUsed
+    testimonialQuote
+    testimonialAuthor
+    projectDate
+    projectStatus
+    galleryImages {
+      nodes {
+        sourceUrl
+        altText
+      }
+    }
+  }
+`;
+
+// Normalize ACF fields from GraphQL to match frontend expectations
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function normalizeProject(project: any): WPProject {
+  if (!project?.projectFields) return project;
+  const pf = project.projectFields;
+
+  // projectStatus comes as an array from ACF select — pick the first value and capitalize
+  let status = pf.projectStatus;
+  if (Array.isArray(status)) {
+    status = status[0] || null;
+  }
+  if (typeof status === "string") {
+    status = status.charAt(0).toUpperCase() + status.slice(1).replace("_", " ");
+  }
+
+  // projectDate comes as ISO timestamp — format as YYYY-MM
+  let date = pf.projectDate;
+  if (date && date.includes("T")) {
+    date = date.slice(0, 7); // "2026-03-07T00:00:00+00:00" → "2026-03"
+  }
+
+  // galleryImages comes as { nodes: [...] } connection — flatten to array
+  let gallery = pf.galleryImages;
+  if (gallery && gallery.nodes) {
+    gallery = gallery.nodes;
+  }
+
+  return {
+    ...project,
+    projectFields: {
+      ...pf,
+      projectStatus: status,
+      projectDate: date,
+      galleryImages: gallery,
+    },
+  };
+}
+
+export async function getProjects(first = 10): Promise<WPProject[]> {
+  const data = await fetchGraphQL<{ projects: { nodes: WPProject[] } }>(
+    `query GetProjects($first: Int!) {
+      projects(first: $first, where: { orderby: { field: DATE, order: DESC } }) {
+        nodes {
+          ${PROJECT_FIELDS}
+        }
+      }
+    }`,
+    { first }
+  );
+  return data.projects.nodes.map(normalizeProject);
+}
+
+export async function getProjectBySlug(slug: string): Promise<WPProject | null> {
+  const data = await fetchGraphQL<{ project: WPProject | null }>(
+    `query GetProject($slug: ID!) {
+      project(id: $slug, idType: SLUG) {
+        ${PROJECT_FIELDS}
+      }
+    }`,
+    { slug }
+  );
+  return data.project ? normalizeProject(data.project) : null;
+}
+
+// ---------- Page Queries ----------
+
+export async function getPages(): Promise<WPPage[]> {
+  const data = await fetchGraphQL<{ pages: { nodes: WPPage[] } }>(
+    `query GetPages {
+      pages(first: 50) {
+        nodes {
+          slug
+          title
+          content
+          featuredImage {
+            node {
+              sourceUrl
+              altText
+            }
+          }
+        }
+      }
+    }`
+  );
+  return data.pages.nodes;
 }
 
 export async function getPageBySlug(slug: string): Promise<WPPage | null> {
-  const pages = await fetchAPI<WPPage[]>("/pages", { slug });
-  return pages[0] || null;
-}
-
-export async function getPages(): Promise<WPPage[]> {
-  return fetchAPI<WPPage[]>("/pages");
+  const data = await fetchGraphQL<{ page: WPPage | null }>(
+    `query GetPage($slug: ID!) {
+      page(id: $slug, idType: URI) {
+        slug
+        title
+        content
+        featuredImage {
+          node {
+            sourceUrl
+            altText
+          }
+        }
+      }
+    }`,
+    { slug }
+  );
+  return data.page;
 }
